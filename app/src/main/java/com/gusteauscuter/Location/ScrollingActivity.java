@@ -4,7 +4,9 @@ import android.Manifest;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.location.Address;
 import android.location.Criteria;
+import android.location.Geocoder;
 import android.location.GpsSatellite;
 import android.location.GpsStatus;
 import android.location.Location;
@@ -24,17 +26,21 @@ import android.view.View;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import java.io.IOException;
 import java.util.Iterator;
+import java.util.List;
 
 public class ScrollingActivity extends AppCompatActivity {
 
     private static final int CHECK_INTERVAL = 1000 * 20;
     private static final int NETWORK_LISTENER_INTERVAL = 1000 * 1;
     private static final int GPS_LISTENER_INTERVAL = 1000 * 2;
+    private static final int PASSIVE_LISTENER_INTERVAL = 1000 * 3;
     private static final float MIN_DISTANCE = 0;
 
     private int timesOfLocationUpdate = 0;
     private int timesOfGpsUpdate = 0;
+    private int timesOfPassivekUpdate = 0;
     private int timesOfNetworkUpdate = 0;
     private int timesSatelliteStatus = 0;
     private int countSatellites = 0;
@@ -53,6 +59,7 @@ public class ScrollingActivity extends AppCompatActivity {
     private LocationManager locationManager;
     private LocationListener gpsListener = null;
     private LocationListener networkListner = null;
+    private LocationListener passiveListner = null;
     private Location currentLocation;
 
     @Override
@@ -107,6 +114,15 @@ public class ScrollingActivity extends AppCompatActivity {
 
     private void registerLocationListener() {
 
+        //判断GPS是否正常启动
+        if (!locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
+            Toast.makeText(this, "请开启GPS导航,选择精确定位模式...", Toast.LENGTH_SHORT).show();
+            //返回开启GPS导航设置界面
+            Intent intent = new Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS);
+            startActivityForResult(intent, 0);
+            //return;
+        }
+
         if (ActivityCompat.checkSelfPermission(getApplicationContext(), Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(getApplicationContext(), Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
             Toast.makeText(getApplicationContext(), "应用未获取权限，请开启应用权限后重试...", Toast.LENGTH_SHORT).show();
             return;
@@ -117,6 +133,8 @@ public class ScrollingActivity extends AppCompatActivity {
         locationManager.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, NETWORK_LISTENER_INTERVAL, MIN_DISTANCE, networkListner);
         gpsListener = new MyLocationListner();
         locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, GPS_LISTENER_INTERVAL, MIN_DISTANCE, gpsListener);
+        passiveListner = new MyLocationListner();
+        locationManager.requestLocationUpdates(LocationManager.PASSIVE_PROVIDER, GPS_LISTENER_INTERVAL, MIN_DISTANCE, passiveListner);
     }
 
     private void stopLocationListener() {
@@ -126,6 +144,7 @@ public class ScrollingActivity extends AppCompatActivity {
         timesOfLocationUpdate = 0;
         timesOfGpsUpdate = 0;
         timesOfNetworkUpdate = 0;
+        timesOfPassivekUpdate=0;
         timesSatelliteStatus = 0;
         //关闭服务
         if (ActivityCompat.checkSelfPermission(getApplicationContext(), Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(getApplicationContext(), Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
@@ -134,6 +153,7 @@ public class ScrollingActivity extends AppCompatActivity {
         }
         locationManager.removeUpdates(networkListner);
         locationManager.removeUpdates(gpsListener);
+        locationManager.removeUpdates(passiveListner);
         locationManager.removeGpsStatusListener(listenerGpsStatus);
         Log.e(TAG, "===成功关闭监听服务");
     }
@@ -151,6 +171,8 @@ public class ScrollingActivity extends AppCompatActivity {
                 timesOfGpsUpdate++;
             else if (LocationManager.NETWORK_PROVIDER.equals(location.getProvider()))
                 timesOfNetworkUpdate++;
+            else if(LocationManager.PASSIVE_PROVIDER.equals(location.getProvider()))
+                timesOfPassivekUpdate++;
 
             // Called when a new location is found by the location provider.
             Log.i(TAG, "Got New Location of provider:" + location.getProvider());
@@ -203,9 +225,7 @@ public class ScrollingActivity extends AppCompatActivity {
          * GPS禁用时触发
          */
         public void onProviderDisabled(String provider) {
-            //updateLocationInfo(null);
-            satellitesInfoTV.setText("GPS关闭，无GPS信息...");
-
+            satellitesInfoTV.setText("GPS权限关闭，无GPS信息...");
         }
 
     }
@@ -244,10 +264,10 @@ public class ScrollingActivity extends AppCompatActivity {
         ;
     };
 
-    private void fabBlin(){
-        if(fab.getVisibility()==View.VISIBLE) {
+    private void fabBlin() {
+        if (fab.getVisibility() == View.VISIBLE) {
             fab.setVisibility(View.INVISIBLE);
-        }else{
+        } else {
             fab.setVisibility(View.VISIBLE);
         }
     }
@@ -280,7 +300,32 @@ public class ScrollingActivity extends AppCompatActivity {
             Log.i(TAG, "纬度：" + location.getLatitude());
             Log.i(TAG, "海拔：" + location.getAltitude());
 
+            //地理位置信息
+            Geocoder gc = new Geocoder(this);
+            List<Address> addresses = null;
+            try {
+                //根据经纬度获得地址信息
+                addresses = gc.getFromLocation(location.getLatitude(), location.getLongitude(), 1);
+                Log.i(TAG, "获取地理信息成功");
+
+            } catch (IOException e) {
+                Log.e(TAG,"获取地理信息失败");
+                e.printStackTrace();
+            }
+            if (addresses.size() > 0) {
+//获取address类的成员信息
+                String msg = "\n";
+                msg += "*地址：" + addresses.get(0).getAddressLine(0) + "\n";
+                //msg += "*国家：" + addresses.get(0).getCountryName() + "\n";
+                //msg += "*城市：" + addresses.get(0).getLocality() +addresses.get(0).getSubLocality() + "\n";
+                //msg += "*电话：" + addresses.get(0).getPhone() + "\n";
+                msg += "*附近：" + addresses.get(0).getFeatureName();
+                currentLocationInfoTV.append(msg);
+                Log.i(TAG,msg);
+            }
+            //更新控制信息
             updateControlInfo();
+
         } else {
             //定位失败提示信息
             //locationExist=false;
@@ -323,19 +368,21 @@ public class ScrollingActivity extends AppCompatActivity {
                 controlInfoTV.append("实时更新中...");
                 //controlInfoTV.append("卫星监听次数：" + timesSatelliteStatus);
 
-            }else
+            } else
                 controlInfoTV.append("更新停止.");
         }
-        controlInfoTV.append("\n有效位置次数：" + timesOfLocationUpdate );
+        controlInfoTV.append("\n有效位置次数：" + timesOfLocationUpdate);
         controlInfoTV.append("\t\t\t最小距离：" + MIN_DISTANCE + "m");
         controlInfoTV.append("\n网络位置更新：" + timesOfNetworkUpdate);
         controlInfoTV.append("\t\t\t监听周期：" + NETWORK_LISTENER_INTERVAL / 1000 + "s");
         //controlInfoTV.append("\t\t\t网络监听：" + timesSatelliteStatus*GPS_LISTENER_INTERVAL/NETWORK_LISTENER_INTERVAL);
-        controlInfoTV.append("\n卫星位置更新：" + timesOfGpsUpdate );
+        controlInfoTV.append("\n辅助位置更新：" + timesOfPassivekUpdate);
+        controlInfoTV.append("\t\t\t监听周期：" + PASSIVE_LISTENER_INTERVAL / 1000 + "s");
+        controlInfoTV.append("\n卫星位置更新：" + timesOfGpsUpdate);
         controlInfoTV.append("\t\t\t监听周期：" + GPS_LISTENER_INTERVAL / 1000 + "s");
         //controlInfoTV.append("\t\t\t卫星监听：" + timesSatelliteStatus);
         controlInfoTV.append("\n搜索卫星数量：" + countSatellites);
-        controlInfoTV.append("\n卫星监听：" + timesSatelliteStatus);
+        controlInfoTV.append("\n卫星监听次数：" + timesSatelliteStatus);
 
     }
 
