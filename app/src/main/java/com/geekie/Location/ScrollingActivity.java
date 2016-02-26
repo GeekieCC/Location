@@ -1,4 +1,4 @@
-package com.gusteauscuter.Location;
+package com.geekie.Location;
 
 import android.Manifest;
 import android.content.Context;
@@ -20,7 +20,6 @@ import android.support.design.widget.Snackbar;
 import android.support.v4.app.ActivityCompat;
 import android.support.v7.app.AppCompatActivity;
 import android.support.v7.widget.Toolbar;
-import android.text.BoringLayout;
 import android.util.Log;
 import android.view.View;
 import android.widget.TextView;
@@ -312,6 +311,13 @@ public class ScrollingActivity extends AppCompatActivity {
                 Log.e(TAG,"获取地理信息失败");
                 e.printStackTrace();
             }
+
+            String desc = "";
+            Bundle locBundle = location.getExtras();
+            if (locBundle != null) {
+                desc = locBundle.getString("desc");
+            }
+
             if (addresses.size() > 0) {
 //获取address类的成员信息
                 String msg = "\n";
@@ -319,6 +325,7 @@ public class ScrollingActivity extends AppCompatActivity {
                 //msg += "*国家：" + addresses.get(0).getCountryName() + "\n";
                 //msg += "*城市：" + addresses.get(0).getLocality() +addresses.get(0).getSubLocality() + "\n";
                 //msg += "*电话：" + addresses.get(0).getPhone() + "\n";
+                msg += "*描述：" + desc + "\n";
                 msg += "*附近：" + addresses.get(0).getFeatureName();
                 currentLocationInfoTV.append(msg);
                 Log.i(TAG,msg);

@@ -1,4 +1,4 @@
-package com.gusteauscuter.Location;
+package com.geekie.Location;
 
 import android.app.Service;
 import android.content.Intent;
