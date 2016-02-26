@@ -13,7 +13,7 @@
 
         <meta-data
             android:name="com.amap.api.v2.apikey"
-            android:value="你申请的key" />
+            android:value="6c90dafbd4a02d171b69aa4202b8fb93" />
         <!-- 定位需要的服务 -->
         <service android:name="com.amap.api.location.APSService" >
         </service>

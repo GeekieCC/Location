@@ -1,82 +1,66 @@
 package com.geekie.Location;
 
-import android.Manifest;
 import android.content.Context;
 import android.content.Intent;
-import android.content.pm.PackageManager;
-import android.location.Address;
-import android.location.Criteria;
-import android.location.Geocoder;
-import android.location.GpsSatellite;
-import android.location.GpsStatus;
 import android.location.Location;
-import android.location.LocationListener;
 import android.location.LocationManager;
-import android.location.LocationProvider;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Message;
 import android.provider.Settings;
 import android.support.design.widget.FloatingActionButton;
-import android.support.design.widget.Snackbar;
-import android.support.v4.app.ActivityCompat;
 import android.support.v7.app.AppCompatActivity;
 import android.support.v7.widget.Toolbar;
+import android.text.TextUtils;
 import android.util.Log;
 import android.view.View;
+import android.widget.CheckBox;
+import android.widget.EditText;
+import android.widget.RadioButton;
+import android.widget.RadioGroup;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import java.io.IOException;
-import java.util.Iterator;
-import java.util.List;
+import com.amap.api.location.AMapLocation;
+import com.amap.api.location.AMapLocationClient;
+import com.amap.api.location.AMapLocationClientOption;
+import com.amap.api.location.AMapLocationListener;
 
-public class ScrollingActivity extends AppCompatActivity {
 
-    private static final int CHECK_INTERVAL = 1000 * 20;
-    private static final int NETWORK_LISTENER_INTERVAL = 1000 * 1;
-    private static final int GPS_LISTENER_INTERVAL = 1000 * 2;
-    private static final int PASSIVE_LISTENER_INTERVAL = 1000 * 3;
-    private static final float MIN_DISTANCE = 0;
+public class ScrollingActivity extends AppCompatActivity implements
+        RadioGroup.OnCheckedChangeListener, View.OnClickListener, AMapLocationListener {
 
-    private int timesOfLocationUpdate = 0;
-    private int timesOfGpsUpdate = 0;
-    private int timesOfPassivekUpdate = 0;
-    private int timesOfNetworkUpdate = 0;
-    private int timesSatelliteStatus = 0;
-    private int countSatellites = 0;
-
-    private boolean isColletStarted = false;
-    //代码中慎用此项判断条件
-    private boolean locationExist = true;
-
-    private TextView currentLocationInfoTV;
-    private TextView controlInfoTV;
-    private TextView satellitesInfoTV;
-    private FloatingActionButton fab;
-
+    private static final int CHECK_INTERVAL = 1000 * 10;
     private static final String TAG = "LocationTagInfo";
 
-    private LocationManager locationManager;
-    private LocationListener gpsListener = null;
-    private LocationListener networkListner = null;
-    private LocationListener passiveListner = null;
-    private Location currentLocation;
+    private RadioGroup rgLocation;
+    private RadioButton rbLocationContinue;
+    private RadioButton rbLocationOnce;
+    private View layoutInterval;
+    private EditText etInterval;
+    private CheckBox cbAddress;
+    private CheckBox cbGpsFirst;
+    private TextView tvReult;
+    private TextView tvStatus;
+    private boolean isLocationStarted=false;
 
-    @Override
-    protected void onDestroy() {
-        super.onDestroy();
-        stopLocationListener();
-    }
+    private FloatingActionButton fab;
+
+    private AMapLocationClient locationClient = null;
+    private AMapLocationClientOption locationOption = null;
+
+    private AMapLocation currentLocation=null;
+
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_scrolling);
+
         Toolbar toolbar = (Toolbar) findViewById(R.id.toolbar);
         setSupportActionBar(toolbar);
 
-        controlInfoTV = (TextView) findViewById(R.id.controlInfoTV);
-        currentLocationInfoTV = (TextView) findViewById(R.id.currentLocationInfoTV);
-        satellitesInfoTV = (TextView) findViewById(R.id.satellitesInfoTV);
+
         fab = (FloatingActionButton) findViewById(R.id.fab);
 
         FloatingActionButton fab = (FloatingActionButton) findViewById(R.id.fab);
@@ -85,335 +69,182 @@ public class ScrollingActivity extends AppCompatActivity {
             public void onClick(View view) {
 
                 //获取定位服务
-                locationManager = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
-
-                //开启GPS信息获取后台服务
-                if (!isColletStarted) {
-                    isColletStarted = true;
-                    //注册监听事件
-                    registerLocationListener();
-
-                    Snackbar.make(view, "Start GPS Information Collect Service", Snackbar.LENGTH_SHORT)
-                            .setAction("Action", null).show();
-
-                } else {
-                    isColletStarted = false;
-
-                    //更新控制信息
-                    updateControlInfo();
-                    //注销监听
-                    stopLocationListener();
-
-                    Snackbar.make(view, "Stop GPS Information Collect Service", Snackbar.LENGTH_SHORT)
-                            .setAction("Action", null).show();
+                LocationManager locationManager = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
+                //判断GPS是否正常启动
+                if (!locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
+                    Toast.makeText(getApplicationContext(), "请开启精确定位模式...", Toast.LENGTH_SHORT).show();
+                    //返回开启GPS导航设置界面
+                    Intent intent = new Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS);
+                    startActivityForResult(intent, 0);
+                    //return;
                 }
+
+
             }
         });
+
+
+        rgLocation = (RadioGroup) findViewById(R.id.rg_location);
+        rbLocationContinue = (RadioButton)findViewById(R.id.rb_continueLocation);
+        rbLocationOnce = (RadioButton)findViewById(R.id.rb_onceLocation);
+        layoutInterval = findViewById(R.id.layout_interval);
+        etInterval = (EditText) findViewById(R.id.et_interval);
+        cbAddress = (CheckBox) findViewById(R.id.cb_needAddress);
+        cbGpsFirst = (CheckBox) findViewById(R.id.cb_gpsFirst);
+        tvReult = (TextView) findViewById(R.id.tv_result);
+        tvStatus=(TextView) findViewById(R.id.tv_status);
+
+        rgLocation.setOnCheckedChangeListener(this);
+        fab.setOnClickListener(this);
+
+        locationClient = new AMapLocationClient(this.getApplicationContext());
+        locationOption = new AMapLocationClientOption();
+        // 设置定位模式为高精度模式
+        locationOption.setLocationMode(AMapLocationClientOption.AMapLocationMode.Hight_Accuracy);
+        // 设置定位监听
+        locationClient.setLocationListener(this);
     }
 
-    private void registerLocationListener() {
-
-        //判断GPS是否正常启动
-        if (!locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
-            Toast.makeText(this, "请开启GPS导航,选择精确定位模式...", Toast.LENGTH_SHORT).show();
-            //返回开启GPS导航设置界面
-            Intent intent = new Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS);
-            startActivityForResult(intent, 0);
-            //return;
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        if (null != locationClient) {
+            /**
+             * 如果AMapLocationClient是在当前Activity实例化的，
+             * 在Activity的onDestroy中一定要执行AMapLocationClient的onDestroy
+             */
+            locationClient.onDestroy();
+            locationClient = null;
+            locationOption = null;
         }
-
-        if (ActivityCompat.checkSelfPermission(getApplicationContext(), Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(getApplicationContext(), Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-            Toast.makeText(getApplicationContext(), "应用未获取权限，请开启应用权限后重试...", Toast.LENGTH_SHORT).show();
-            return;
-        }
-        //监听gps状态
-        locationManager.addGpsStatusListener(listenerGpsStatus);
-        networkListner = new MyLocationListner();
-        locationManager.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, NETWORK_LISTENER_INTERVAL, MIN_DISTANCE, networkListner);
-        gpsListener = new MyLocationListner();
-        locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, GPS_LISTENER_INTERVAL, MIN_DISTANCE, gpsListener);
-        passiveListner = new MyLocationListner();
-        locationManager.requestLocationUpdates(LocationManager.PASSIVE_PROVIDER, GPS_LISTENER_INTERVAL, MIN_DISTANCE, passiveListner);
     }
 
-    private void stopLocationListener() {
-
-        fab.setVisibility(View.VISIBLE);
-
-        timesOfLocationUpdate = 0;
-        timesOfGpsUpdate = 0;
-        timesOfNetworkUpdate = 0;
-        timesOfPassivekUpdate=0;
-        timesSatelliteStatus = 0;
-        //关闭服务
-        if (ActivityCompat.checkSelfPermission(getApplicationContext(), Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(getApplicationContext(), Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-            Log.e(TAG, "关闭监听服务,没有LocationManager权限");
-            return;
+    @Override
+    public void onCheckedChanged(RadioGroup group, int checkedId) {
+        switch (checkedId) {
+            case R.id.rb_continueLocation:
+                //只有持续定位设置定位间隔才有效，单次定位无效
+                layoutInterval.setVisibility(View.VISIBLE);
+                //只有在高精度模式单次定位的情况下，GPS优先才有效
+                cbGpsFirst.setVisibility(View.GONE);
+                locationOption.setOnceLocation(false);
+                break;
+            case R.id.rb_onceLocation:
+                //只有持续定位设置定位间隔才有效，单次定位无效
+                layoutInterval.setVisibility(View.GONE);
+                //只有在高精度模式单次定位的情况下，GPS优先才有效
+                cbGpsFirst.setVisibility(View.VISIBLE);
+                locationOption.setOnceLocation(true);
+                break;
         }
-        locationManager.removeUpdates(networkListner);
-        locationManager.removeUpdates(gpsListener);
-        locationManager.removeUpdates(passiveListner);
-        locationManager.removeGpsStatusListener(listenerGpsStatus);
-        Log.e(TAG, "===成功关闭监听服务");
     }
 
+    /**
+     * 设置控件的可用状态
+     */
+    private void setViewEnable(boolean isEnable) {
+        rbLocationContinue.setEnabled(isEnable);
+        rbLocationOnce.setEnabled(isEnable);
+        etInterval.setEnabled(isEnable);
+        cbAddress.setEnabled(isEnable);
+        cbGpsFirst.setEnabled(isEnable);
+    }
 
-    //位置监听
-    private class MyLocationListner implements LocationListener {
-
-        /**
-         * 位置信息变化时触发
-         */
-        public void onLocationChanged(Location location) {
-
-            if (LocationManager.GPS_PROVIDER.equals(location.getProvider()))
-                timesOfGpsUpdate++;
-            else if (LocationManager.NETWORK_PROVIDER.equals(location.getProvider()))
-                timesOfNetworkUpdate++;
-            else if(LocationManager.PASSIVE_PROVIDER.equals(location.getProvider()))
-                timesOfPassivekUpdate++;
-
-            // Called when a new location is found by the location provider.
-            Log.i(TAG, "Got New Location of provider:" + location.getProvider());
-            if (currentLocation != null) {
-                if (isBetterLocation(location, currentLocation)) {
-                    Log.i(TAG, "It's a better location");
-                    currentLocation = location;
-                    updateLocationInfo(location);
-                } else {
-                    Log.i(TAG, "Not very good!");
-                }
+    @Override
+    public void onClick(View v) {
+        if (v.getId() == R.id.fab) {
+            if (!isLocationStarted) {
+                setViewEnable(false);
+                initOption();
+                // 设置定位参数
+                locationClient.setLocationOption(locationOption);
+                // 启动定位
+                locationClient.startLocation();
+                tvReult.setText("");
+                mHandler.sendEmptyMessage(Utils.MSG_LOCATION_START);
             } else {
-                Log.i(TAG, "It's first location");
-                currentLocation = location;
-                updateLocationInfo(location);
+                setViewEnable(true);
+                // 停止定位
+                locationClient.stopLocation();
+                mHandler.sendEmptyMessage(Utils.MSG_LOCATION_STOP);
             }
-
-            fabBlin();
-
+            isLocationStarted=!isLocationStarted;
         }
+    }
 
+    // 根据控件的选择，重新设置定位参数
+    private void initOption() {
+        // 设置是否需要显示地址信息
+        locationOption.setNeedAddress(cbAddress.isChecked());
         /**
-         * GPS状态变化时触发
+         * 设置是否优先返回GPS定位结果，如果30秒内GPS没有返回定位结果则进行网络定位
+         * 注意：只有在高精度模式下的单次定位有效，其他方式无效
          */
-        public void onStatusChanged(String provider, int status, Bundle extras) {
-            switch (status) {
-                //GPS状态为可见时
-                case LocationProvider.AVAILABLE:
-                    Log.i(TAG, "当前GPS状态为可见状态");
-                    break;
-                //GPS状态为服务区外时
-                case LocationProvider.OUT_OF_SERVICE:
-                    Log.i(TAG, "当前GPS状态为服务区外状态");
-                    break;
-                //GPS状态为暂停服务时
-                case LocationProvider.TEMPORARILY_UNAVAILABLE:
-                    Log.i(TAG, "当前GPS状态为暂停服务状态");
-                    break;
-            }
-        }
-
-        /**
-         * GPS开启时触发
-         */
-        public void onProviderEnabled(String provider) {
-            satellitesInfoTV.setText("GPS开启，定位中...");
-        }
-
-        /**
-         * GPS禁用时触发
-         */
-        public void onProviderDisabled(String provider) {
-            satellitesInfoTV.setText("GPS权限关闭，无GPS信息...");
+        locationOption.setGpsFirst(cbGpsFirst.isChecked());
+        String strInterval = etInterval.getText().toString();
+        if (!TextUtils.isEmpty(strInterval)) {
+            // 设置发送定位请求的时间间隔,最小值为1000，如果小于1000，按照1000算
+            locationOption.setInterval(Long.valueOf(strInterval));
         }
 
     }
 
-    ;
+    Handler mHandler = new Handler() {
+        public void dispatchMessage(android.os.Message msg) {
+            switch (msg.what) {
+                //开始定位
+                case Utils.MSG_LOCATION_START:
+                    tvStatus.setText("...正在定位...");
+                    //tvReult.setText("");
+                    break;
+                // 定位完成
+                case Utils.MSG_LOCATION_FINISH:
+                    AMapLocation location = (AMapLocation) msg.obj;
 
-    //状态监听
-    GpsStatus.Listener listenerGpsStatus = new GpsStatus.Listener() {
+                    if (currentLocation != null) {
+                        String result = Utils.getLocationStr(location);
 
-        public void onGpsStatusChanged(int event) {
-            timesSatelliteStatus++;
-            switch (event) {
-                //第一次定位
-                case GpsStatus.GPS_EVENT_FIRST_FIX:
-                    Log.i(TAG, "第一次定位");
+                        if (isBetterLocation(location, currentLocation)) {
+                            Log.i(TAG, "It's a better location");
+                            tvReult.setText("+++定位更新+++");
+                            tvReult.append(result);
+                            currentLocation = location;
+                        } else {
+                            Log.i(TAG, "Not very good!");
+                            tvReult.append("\n***无效定位***");
+                            tvReult.append(result);
+                        }
+                        tvStatus.setText("...location...");
+
+                    } else {
+                        Log.i(TAG, "It's first location");
+                        currentLocation = location;
+                        tvStatus.setText("...首次定位中...");
+                    }
+
+                    fabBlin();
                     break;
-                //卫星状态改变
-                case GpsStatus.GPS_EVENT_SATELLITE_STATUS:
-                    Log.i(TAG, "卫星状态改变");
-                    updateSatellitesInfo();
+                //停止定位
+                case Utils.MSG_LOCATION_STOP:
+                    tvStatus.setText("===定位停止===");
                     break;
-                //定位启动
-                case GpsStatus.GPS_EVENT_STARTED:
-                    Log.i(TAG, "定位启动");
-                    break;
-                //定位结束
-                case GpsStatus.GPS_EVENT_STOPPED:
-                    Log.i(TAG, "定位结束");
+                default:
                     break;
             }
-            updateControlInfo();
-
-            fabBlin();
-        }
-
-        ;
+        };
     };
 
-    private void fabBlin() {
-        if (fab.getVisibility() == View.VISIBLE) {
-            fab.setVisibility(View.INVISIBLE);
-        } else {
-            fab.setVisibility(View.VISIBLE);
+    // 定位监听
+    @Override
+    public void onLocationChanged(AMapLocation loc) {
+        if (null != loc) {
+            Message msg = mHandler.obtainMessage();
+            msg.obj = loc;
+            msg.what = Utils.MSG_LOCATION_FINISH;
+            mHandler.sendMessage(msg);
         }
     }
 
-    /**
-     * 实时更新文本内容
-     *
-     * @param location
-     */
-    private void updateLocationInfo(Location location) {
-        if (location != null) {
-            locationExist = true;
-            timesOfLocationUpdate++;
-
-            currentLocationInfoTV.setText("====位置信息===");
-            currentLocationInfoTV.append("\n@来源 ：" + location.getProvider());
-            currentLocationInfoTV.append("\t\t精度 ：" + location.getAccuracy() + "m");
-
-            currentLocationInfoTV.append("\n@经度 ：" + String.valueOf(location.getLongitude()));
-            currentLocationInfoTV.append("\n@纬度 ：" + String.valueOf(location.getLatitude()));
-            currentLocationInfoTV.append("\n@海拔 ：" + location.getAltitude() + "m");
-            currentLocationInfoTV.append("\n@速度 ：" + location.getSpeed() + "m/s");
-            currentLocationInfoTV.append("\n@方向 ：" + location.getBearing());
-            //currentLocationInfoTV.append("\n格林威治时间：" + 1000*location.getTime());
-            //currentLocationInfoTV.append("\n系统上电时间：     " +location.getElapsedRealtimeNanos());
-            //currentLocationInfoTV.append("\n额外来源：" +location.getExtras());
-
-            Log.i(TAG, "时间：" + location.getTime());
-            Log.i(TAG, "经度：" + location.getLongitude());
-            Log.i(TAG, "纬度：" + location.getLatitude());
-            Log.i(TAG, "海拔：" + location.getAltitude());
-
-            //地理位置信息
-            Geocoder gc = new Geocoder(this);
-            List<Address> addresses = null;
-            try {
-                //根据经纬度获得地址信息
-                addresses = gc.getFromLocation(location.getLatitude(), location.getLongitude(), 1);
-                Log.i(TAG, "获取地理信息成功");
-
-            } catch (IOException e) {
-                Log.e(TAG,"获取地理信息失败");
-                e.printStackTrace();
-            }
-
-            String desc = "";
-            Bundle locBundle = location.getExtras();
-            if (locBundle != null) {
-                desc = locBundle.getString("desc");
-            }
-
-            if (addresses.size() > 0) {
-//获取address类的成员信息
-                String msg = "\n";
-                msg += "*地址：" + addresses.get(0).getAddressLine(0) + "\n";
-                //msg += "*国家：" + addresses.get(0).getCountryName() + "\n";
-                //msg += "*城市：" + addresses.get(0).getLocality() +addresses.get(0).getSubLocality() + "\n";
-                //msg += "*电话：" + addresses.get(0).getPhone() + "\n";
-                msg += "*描述：" + desc + "\n";
-                msg += "*附近：" + addresses.get(0).getFeatureName();
-                currentLocationInfoTV.append(msg);
-                Log.i(TAG,msg);
-            }
-            //更新控制信息
-            updateControlInfo();
-
-        } else {
-            //定位失败提示信息
-            //locationExist=false;
-            currentLocationInfoTV.setText("信噪比过低，移步开阔地段，重试...");
-            Log.i(TAG, "定位失败！");
-        }
-    }
-
-    private void updateSatellitesInfo() {
-        GpsStatus gpsStatus = locationManager.getGpsStatus(null);
-        //获取卫星颗数的默认最大值
-        int maxSatellites = gpsStatus.getMaxSatellites();
-        //创建一个迭代器保存所有卫星
-        Iterator<GpsSatellite> iters = gpsStatus.getSatellites().iterator();
-        if (iters.hasNext()) {
-            satellitesInfoTV.setText("===卫星数据===");
-        }
-        countSatellites = 0;
-        while (iters.hasNext() && countSatellites <= maxSatellites) {
-            countSatellites++;
-            GpsSatellite s = iters.next();
-            if (countSatellites < 10)
-                satellitesInfoTV.append("\n#卫星0" + countSatellites);
-            else
-                satellitesInfoTV.append("\n#卫星" + countSatellites);
-            satellitesInfoTV.append("\t\t\t方向角" + s.getAzimuth());
-            satellitesInfoTV.append("\t\t高度角" + s.getElevation());
-            satellitesInfoTV.append("\t\t信噪比" + s.getSnr());
-            //satellitesInfoTV.append("\t\t伪随机数" +s.getPrn());
-        }
-        updateControlInfo();
-    }
-
-    private void updateControlInfo() {
-        controlInfoTV.setText("===当前状态===");
-        if (!locationExist) {
-            controlInfoTV.setText("获取定位信息失败！请检查...");
-        } else {
-            if (isColletStarted) {
-                controlInfoTV.append("实时更新中...");
-                //controlInfoTV.append("卫星监听次数：" + timesSatelliteStatus);
-
-            } else
-                controlInfoTV.append("更新停止.");
-        }
-        controlInfoTV.append("\n有效位置次数：" + timesOfLocationUpdate);
-        controlInfoTV.append("\t\t\t最小距离：" + MIN_DISTANCE + "m");
-        controlInfoTV.append("\n网络位置更新：" + timesOfNetworkUpdate);
-        controlInfoTV.append("\t\t\t监听周期：" + NETWORK_LISTENER_INTERVAL / 1000 + "s");
-        //controlInfoTV.append("\t\t\t网络监听：" + timesSatelliteStatus*GPS_LISTENER_INTERVAL/NETWORK_LISTENER_INTERVAL);
-        controlInfoTV.append("\n辅助位置更新：" + timesOfPassivekUpdate);
-        controlInfoTV.append("\t\t\t监听周期：" + PASSIVE_LISTENER_INTERVAL / 1000 + "s");
-        controlInfoTV.append("\n卫星位置更新：" + timesOfGpsUpdate);
-        controlInfoTV.append("\t\t\t监听周期：" + GPS_LISTENER_INTERVAL / 1000 + "s");
-        //controlInfoTV.append("\t\t\t卫星监听：" + timesSatelliteStatus);
-        controlInfoTV.append("\n搜索卫星数量：" + countSatellites);
-        controlInfoTV.append("\n卫星监听次数：" + timesSatelliteStatus);
-
-    }
-
-    /**
-     * 返回查询条件
-     *
-     * @return
-     */
-    private Criteria getCriteria() {
-        Criteria criteria = new Criteria();
-        //设置定位精确度 Criteria.ACCURACY_COARSE比较粗略，Criteria.ACCURACY_FINE则比较精细
-        criteria.setAccuracy(Criteria.ACCURACY_FINE);
-        //设置是否要求速度
-        criteria.setSpeedRequired(false);
-        //设置是否需要方位信息
-        criteria.setBearingRequired(false);
-        //设置是否需要海拔信息
-        criteria.setAltitudeRequired(false);
-        // 设置对电源的需求
-        criteria.setPowerRequirement(Criteria.POWER_LOW);
-        // 设置是否允许运营商收费
-        criteria.setCostAllowed(false);
-        return criteria;
-    }
 
 
     protected boolean isBetterLocation(Location location, Location currentBestLocation) {
@@ -444,7 +275,7 @@ public class ScrollingActivity extends AppCompatActivity {
                 .getAccuracy());
         boolean isLessAccurate = accuracyDelta > 0;
         boolean isMoreAccurate = accuracyDelta < 0;
-        boolean isSignificantlyLessAccurate = accuracyDelta > 200;
+        boolean isSignificantlyLessAccurate = (location.getAccuracy()/currentBestLocation.getAccuracy()) > 1.5;
 
         // Check if the old and new location are from the same provider
         boolean isFromSameProvider = isSameProvider(location.getProvider(),
@@ -473,4 +304,17 @@ public class ScrollingActivity extends AppCompatActivity {
         return provider1.equals(provider2);
     }
 
+    private void fabBlin() {
+        if (fab.getVisibility() == View.VISIBLE) {
+
+            fab.setVisibility(View.INVISIBLE);
+            new Handler().postDelayed(new Runnable() {
+
+                @Override
+                public void run() {
+                    fab.setVisibility(View.VISIBLE);
+                }
+            }, 200);
+        }
+    }
 }
