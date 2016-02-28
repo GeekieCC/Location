@@ -9,7 +9,7 @@
     <string name="gps_outOfSevice">GPS权限关闭，无GPS信息...</string>
     <string name="gps_locationING">GPS开启，定位中...</string>
 
-    <string name="severPath">http://geekie.cc/location</string>
+    <string name="severPath">http://geekie.cc/location/index.jsp</string>
 
 
     <string name="action_settings">Settings</string>

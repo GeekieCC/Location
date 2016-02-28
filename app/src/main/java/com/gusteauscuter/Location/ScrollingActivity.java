@@ -13,6 +13,7 @@ import android.location.Location;
 import android.location.LocationListener;
 import android.location.LocationManager;
 import android.location.LocationProvider;
+import android.os.AsyncTask;
 import android.os.Bundle;
 import android.provider.Settings;
 import android.support.design.widget.FloatingActionButton;
@@ -20,15 +21,19 @@ import android.support.design.widget.Snackbar;
 import android.support.v4.app.ActivityCompat;
 import android.support.v7.app.AppCompatActivity;
 import android.support.v7.widget.Toolbar;
+import android.text.TextUtils;
 import android.util.Log;
 import android.view.View;
 import android.widget.TextView;
 import android.widget.Toast;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.net.URLConnection;
+import java.net.URLEncoder;
+import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Iterator;
 import java.util.List;
@@ -144,7 +149,7 @@ public class ScrollingActivity extends AppCompatActivity {
         locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, GPS_LISTENER_INTERVAL, MIN_DISTANCE, gpsListener);
 
 
-        posToSever(STATUS_START);
+        new posToSever(STATUS_START).execute();
     }
 
     private void stopLocationListener() {
@@ -165,7 +170,7 @@ public class ScrollingActivity extends AppCompatActivity {
         locationManager.removeGpsStatusListener(listenerGpsStatus);
         Log.e(TAG, "===成功关闭监听服务");
 
-        posToSever(STATUS_STOP);
+        new posToSever(STATUS_STOP).execute();
 
     }
 
@@ -291,7 +296,8 @@ public class ScrollingActivity extends AppCompatActivity {
             timesOfLocationUpdate++;
 
             long time = location.getTime();
-            timeString = new Date(time).toLocaleString();
+            SimpleDateFormat formatter = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+            timeString = formatter.format(new Date(time));
             currentLocationInfoTV.setText("====位置信息===");
             currentLocationInfoTV.append("\n@来源 ：" + location.getProvider());
             currentLocationInfoTV.append("\t\t精度 ：" + location.getAccuracy() + "m");
@@ -314,7 +320,7 @@ public class ScrollingActivity extends AppCompatActivity {
             //查询地理位置信息
             getGeocoder(location);
             //上传信息到服务器
-            posToSever(location,mAddress,timeString);
+            new posToSever(STATUS_UPDATE,location,mAddress,timeString).execute();
             //更新控制信息
             updateControlInfo();
 
@@ -337,11 +343,11 @@ public class ScrollingActivity extends AppCompatActivity {
 
             if (addresses.size() > 0) {
                 //获取address类的成员信息
-                mAddress = "*地址：" + addresses.get(0).getAddressLine(0) + "\n";
+                mAddress = "*地址：" + addresses.get(0).getAddressLine(0) ;
                 //mAddress += "*国家：" + addresses.get(0).getCountryName() + "\n";
                 //mAddress += "*城市：" + addresses.get(0).getLocality() +addresses.get(0).getSubLocality() + "\n";
                 //mAddress += "*电话：" + addresses.get(0).getPhone() + "\n";
-                mAddress += "*附近：" + addresses.get(0).getFeatureName();
+                mAddress += "[附近]" + addresses.get(0).getFeatureName();
                 currentLocationInfoTV.append("\n"+mAddress);
                 Log.i(TAG, mAddress);
             }
@@ -352,54 +358,98 @@ public class ScrollingActivity extends AppCompatActivity {
     }
 
 
-    private void posToSever(Location location,String address, String timeString){
-        try {
-            initConn(location, address, timeString);
-            Log.i("-1", "=====发送请求成功！====");
-        } catch (IOException e) {
-            Log.i("-2", "=====请求超时！====");
-            e.printStackTrace();
-            return;
+//    private void posToSever(Location location,String address, String timeString){
+//        try {
+//            initConn(location, address, timeString);
+//            Log.i("-1", "=====发送请求成功！====");
+//        } catch (IOException e) {
+//            Log.i("-2", "=====请求超时！====");
+//            e.printStackTrace();
+//            return;
+//        }
+//    }
+
+    class posToSever extends AsyncTask<String ,Void,Void>{
+
+        String statusAT;
+        Location locationAT;
+        String addressAT;
+        String timeAT;
+
+        public posToSever(String status){
+            statusAT=status;
+        }
+
+        public posToSever(String status, Location location,String address, String time){
+            statusAT=status;
+            locationAT=location;
+            addressAT=address;
+            timeAT=time;
+        }
+
+        /**
+         * Override this method to perform a computation on a background thread. The
+         * specified parameters are the parameters passed to {@link #execute}
+         * by the caller of this task.
+         * <p/>
+         * This method can call {@link #publishProgress} to publish updates
+         * on the UI thread.
+         *
+         * @param params The parameters of the task.
+         * @return A result, defined by the subclass of this task.
+         * @see #onPreExecute()
+         * @see #onPostExecute
+         * @see #publishProgress
+         */
+        @Override
+        protected Void doInBackground(String... params) {
+            try {
+
+                URL url =new URL(getString(R.string.severPath));
+                HttpURLConnection urlConnection= (HttpURLConnection) url.openConnection();
+                urlConnection.setRequestMethod("GET");
+                urlConnection.setDoOutput(true);
+                urlConnection.setRequestProperty("Charset", "UTF-8");
+                urlConnection.setConnectTimeout(30000);
+                urlConnection.setDoInput(true);
+                urlConnection.setUseCaches(false);
+
+                StringBuffer requestPro = new StringBuffer();
+                requestPro.append("STATUS=" + statusAT);
+                requestPro.append("&time=" + timeAT);
+
+                if(statusAT.equals(STATUS_UPDATE)) {
+                    requestPro.append("&longitude="+ String.format("%08.5f",locationAT.getLongitude()));
+                    requestPro.append("&latitude="+ String.format("%08.5f", locationAT.getLatitude()));
+                    requestPro.append("&altitude="+ String.format("%08.2f", locationAT.getAltitude()));
+                    requestPro.append("&provider="+ String.format("%7s",locationAT.getProvider()));
+                    requestPro.append("&accuracy="+ String.format("%08.5f", locationAT.getAccuracy()));
+                    requestPro.append("&speed="+ String.format("%08.2f", locationAT.getSpeed()));
+                    requestPro.append("&bearing="+ String.format("%05.2f",locationAT.getBearing()));
+                    //requestPro.append("&address=" + addressAT);
+                    requestPro.append("&satellites=" + countSatellitesValid + "|" +countSatellites );
+                }
+
+                // 表单参数与get形式一样
+                byte[] bytes = requestPro.toString().getBytes();
+                urlConnection.getOutputStream().write(bytes);// 输入参数
+
+                urlConnection.connect();
+
+                System.out.println(urlConnection.getResponseCode()+urlConnection.getResponseMessage()); //响应代码 200表示成功
+                urlConnection.disconnect();
+
+                Log.i("-1", "=====发送状态==成功！====");
+            } catch (IOException e) {
+                Log.i("-2", "=====发送状态==超时！====");
+                e.printStackTrace();
+
+            }
+            return null;
         }
     }
 
-    private void posToSever( String status){
-        try {
-            URL url =new URL(getString(R.string.severPath));
-            HttpURLConnection urlConnection= (HttpURLConnection) url.openConnection();
-            urlConnection.setRequestProperty("STATUS",status);
-            urlConnection.setRequestMethod("POST");
-            urlConnection.disconnect();
-            Log.i("-3", "=====发送状态==成功！====");
-        } catch (IOException e) {
-            Log.i("-4", "=====发送状态==超时！====");
-            e.printStackTrace();
-            return;
-        }
-    }
 
-    /**
-     *
-     * @param location
-     * @param address
-     * @param timeString
-     */
-    private void initConn (Location location,String address, String timeString) throws IOException{
-
-        URL url =new URL(getString(R.string.severPath));
-        HttpURLConnection urlConnection= (HttpURLConnection) url.openConnection();
-        urlConnection.setRequestProperty("STATUS",STATUS_UPDATE);
-        urlConnection.setRequestProperty("time",timeString);
-        urlConnection.setRequestProperty("longitude",String.valueOf(location.getLongitude()));
-        urlConnection.setRequestProperty("latitude",String.valueOf(location.getLatitude()));
-        urlConnection.setRequestProperty("altitude",String.valueOf(location.getAltitude()));
-        urlConnection.setRequestProperty("provider",String.valueOf(location.getProvider()));
-        urlConnection.setRequestProperty("accuracy",String.valueOf(location.getAccuracy()));
-        urlConnection.setRequestProperty("speed",String.valueOf(location.getSpeed()));
-        urlConnection.setRequestProperty("bearing",String.valueOf(location.getBearing()));
-        urlConnection.setRequestMethod("POST");
-        urlConnection.disconnect();
-    }
 
     private void updateSatellitesInfo() {
         GpsStatus gpsStatus = locationManager.getGpsStatus(null);
