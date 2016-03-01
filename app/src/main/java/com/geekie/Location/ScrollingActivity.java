@@ -26,6 +26,9 @@ import com.amap.api.location.AMapLocationClient;
 import com.amap.api.location.AMapLocationClientOption;
 import com.amap.api.location.AMapLocationListener;
 
+import java.text.SimpleDateFormat;
+import java.util.Date;
+
 
 public class ScrollingActivity extends AppCompatActivity implements
         RadioGroup.OnCheckedChangeListener, View.OnClickListener, AMapLocationListener {
@@ -33,6 +36,7 @@ public class ScrollingActivity extends AppCompatActivity implements
     private static final int CHECK_INTERVAL = 1000 * 10;
     private static final String TAG = "LocationTagInfo";
 
+    private  String startTime;
     private RadioGroup rgLocation;
     private RadioButton rbLocationContinue;
     private RadioButton rbLocationOnce;
@@ -191,11 +195,18 @@ public class ScrollingActivity extends AppCompatActivity implements
 
     Handler mHandler = new Handler() {
         public void dispatchMessage(android.os.Message msg) {
+
+            long time = new Date().getTime();
+            SimpleDateFormat formatter = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+            String timeString = formatter.format(new Date(time));
+
             switch (msg.what) {
                 //开始定位
                 case Utils.MSG_LOCATION_START:
                     tvStatus.setText("...正在定位...");
                     //tvReult.setText("");
+                    startTime=timeString;
+                    new PostToSever("start",startTime).execute();
                     break;
                 // 定位完成
                 case Utils.MSG_LOCATION_FINISH:
@@ -209,12 +220,16 @@ public class ScrollingActivity extends AppCompatActivity implements
                             tvReult.setText("+++定位更新+++");
                             tvReult.append(result);
                             currentLocation = location;
+
+
                         } else {
                             Log.i(TAG, "Not very good!");
                             tvReult.append("\n***无效定位***");
                             tvReult.append(result);
                         }
                         tvStatus.setText("...location...");
+
+                        new PostToSever("update",startTime,currentLocation,"address",timeString).execute();
 
                     } else {
                         Log.i(TAG, "It's first location");
@@ -226,6 +241,7 @@ public class ScrollingActivity extends AppCompatActivity implements
                     break;
                 //停止定位
                 case Utils.MSG_LOCATION_STOP:
+                    new PostToSever("stop",startTime).execute();
                     tvStatus.setText("===定位停止===");
                     break;
                 default:
