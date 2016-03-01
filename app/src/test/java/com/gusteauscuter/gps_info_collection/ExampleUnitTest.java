@@ -1,4 +1,4 @@
-package com.gusteauscuter.Location;
+package com.geekie.Location;
 
 import org.junit.Test;
 
